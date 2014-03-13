@@ -3,7 +3,8 @@ python-bloomfilter
 
 A pure python bloomfilter implementation with JSON (de)serialisation and (zlib) compression
 
-'''
+Example:
+```
 bf1 = BloomFilter(ideal_num_elements_n=1000000, error_rate_p=0.001)
 bf1.add("Alabama")
 bf1.add("Illinois")
@@ -23,4 +24,4 @@ for state in ("Alabama", "Illinois", "Nevada", "RhodeIsland"):
 for state in ("Vermont", "Louisiana", "Mississippi", "Texas"):
   #Verify that the state is DEFINITLY NOT in the bloomfilter
   assert state not in bf2
-'''
+```
