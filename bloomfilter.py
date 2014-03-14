@@ -25,11 +25,10 @@ class BloomFilter(object):
         self.error_rate_p = error_rate_p
         self.ideal_num_elements_n = ideal_num_elements_n
 
-        self.num_bits_m = self._calculate_m(self.ideal_num_elements_n, self.error_rate_p)
-        self.num_probes_k = self._calculate_k(self.ideal_num_elements_n, self.num_bits_m)
+        self.num_bits_m = BloomFilter.calculateM(self.ideal_num_elements_n, self.error_rate_p)
+        self.num_probes_k = BloomFilter.calculateK(self.ideal_num_elements_n, self.num_bits_m)
 
-        self.number_of_words = self._calculate_num_words(self.num_bits_m)
-        self.log_words = self._calculate_log_words(self.number_of_words)
+        self.number_of_words = BloomFilter.calculateNumWords(self.num_bits_m)
 
         self.data = data or array.array('l', [0 for _ in xrange(self.number_of_words)])
 
@@ -86,24 +85,24 @@ class BloomFilter(object):
             # Intersection b/w two unrelated bloom filter raises this
             raise ValueError("Mismatched bloom filters")
 
-    def _calculate_m(self, n, p):
+    def __contains__(self, key):
+        return all(self.data[i//8] & (2 ** (i % 8)) for i in self.get_probes(key))
+
+    @staticmethod
+    def calculateM(n, p):
         numerator = -1 * n * math.log(p)
         denominator = math.log(2) ** 2
         real_num_bits_m = numerator / denominator
         return int(math.ceil(real_num_bits_m))
 
-    def _calculate_k(self, n, m):
+    @staticmethod
+    def calculateK(n, m):
         real_num_probes_k = (m / n) * math.log(2)
         return int(math.ceil(real_num_probes_k))
 
-    def _calculate_num_words(self, m):
+    @staticmethod
+    def calculateNumWords(m):
         return (m + 31) // 32
-
-    def _calculate_log_words(self, num_words):
-        return int(math.log(num_words, 2))
-
-    def __contains__(self, key):
-        return all(self.data[i//8] & (2 ** (i % 8)) for i in self.get_probes(key))
 
     @classmethod
     def fromJSON(cls, json_bf):
