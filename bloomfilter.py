@@ -14,15 +14,8 @@ import base64
 import json
 import zlib
 
-def get_probes(bfilter, key):
-    hasher = random.Random(key).randrange
-    for _ in xrange(bfilter.get_nr_of_probes()):
-        array_index = hasher(len(bfilter.get_data()))
-        bit_index = hasher(32)
-        yield array_index, 1 << bit_index
-
 class BloomFilter(object):
-    def __init__(self, ideal_num_elements_n, error_rate_p, data=None, probe_func=get_probes):
+    def __init__(self, ideal_num_elements_n, error_rate_p, data=None):
         if ideal_num_elements_n <= 0:
             raise ValueError('ideal_num_elements_n must be > 0')
         if not (0 < error_rate_p < 1):
@@ -30,13 +23,19 @@ class BloomFilter(object):
 
         self.error_rate_p = error_rate_p
         self.ideal_num_elements_n = ideal_num_elements_n
-        self.probe_func = probe_func
 
         self.num_bits_m = self._calculate_m(self.ideal_num_elements_n, self.error_rate_p)
         self.num_probes_k = self._calculate_k(self.ideal_num_elements_n, self.num_bits_m)
 
-        number_of_words = self._calculate_num_words(self.num_bits_m)
-        self.data = data or array.array('L', [0]) * number_of_words
+        self.number_of_words = self._calculate_num_words(self.num_bits_m)
+        self.log_words = self._calculate_log_words(self.number_of_words)
+
+        self.data = data or array.array('L', [0]) * self.number_of_words
+
+    def get_probes(self, key):
+        _r = random.Random(key).random
+        for _ in range(self.num_probes_k):
+            yield int(_r() * self.number_of_words)
 
     def toJSON(self, compress=True):
         result = {
@@ -62,14 +61,13 @@ class BloomFilter(object):
         return self.num_bits_m
 
     def add(self, key):
-        for i, mask in self.probe_func(self, key):
-            self.data[i] |= mask
+        for i in self.get_probes(key):
+            self.data[i//8] |= 2 ** (i % 8)
 
     def match_template(self, bfilter):
         return (
             self.num_bits_m == bfilter.get_nr_of_bits() and
-            self.num_probes_k == bfilter.get_nr_of_probes() and
-            self.probe_func == bfilter.probe_func
+            self.num_probes_k == bfilter.get_nr_of_probes()
         )
 
     def union(self, bfilter):
@@ -89,7 +87,6 @@ class BloomFilter(object):
     def _calculate_m(self, n, p):
         numerator = -1 * n * math.log(p)
         denominator = math.log(2) ** 2
-        #self.num_bits_m = - int((self.ideal_num_elements_n * math.log(self.error_rate_p)) / (math.log(2) ** 2))
         real_num_bits_m = numerator / denominator
         return int(math.ceil(real_num_bits_m))
 
@@ -100,11 +97,14 @@ class BloomFilter(object):
     def _calculate_num_words(self, m):
         return (m + 31) // 32
 
-    def __contains__(self, key):
-        return all(self.data[i] & mask for i, mask in self.probe_func(self, key))
+    def _calculate_log_words(self, num_words):
+        return int(math.log(num_words, 2))
 
-    @staticmethod
-    def fromJSON(json_bf):
+    def __contains__(self, key):
+        return all(self.data[i//8] & (2 ** (i % 8)) for i in self.get_probes(key))
+
+    @classmethod
+    def fromJSON(cls, json_bf):
         result = json.loads(json_bf)
         n = result.get("n", None)
         p = result.get("p", None)
