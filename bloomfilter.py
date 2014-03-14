@@ -15,6 +15,7 @@ import json
 import zlib
 
 class BloomFilter(object):
+    VERSION = 1
     def __init__(self, ideal_num_elements_n, error_rate_p, data=None):
         if ideal_num_elements_n <= 0:
             raise ValueError('ideal_num_elements_n must be > 0')
@@ -30,7 +31,7 @@ class BloomFilter(object):
         self.number_of_words = self._calculate_num_words(self.num_bits_m)
         self.log_words = self._calculate_log_words(self.number_of_words)
 
-        self.data = data or array.array('L', [0]) * self.number_of_words
+        self.data = data or array.array('l', [0 for _ in xrange(self.number_of_words)])
 
     def get_probes(self, key):
         _r = random.Random(key).random
@@ -39,6 +40,7 @@ class BloomFilter(object):
 
     def toJSON(self, compress=True):
         result = {
+            "v": BloomFilter.VERSION,
             "n": self.ideal_num_elements_n,
             "p": self.error_rate_p,
             "zlib": compress
@@ -106,19 +108,23 @@ class BloomFilter(object):
     @classmethod
     def fromJSON(cls, json_bf):
         result = json.loads(json_bf)
+        v = result.get("v", None)
         n = result.get("n", None)
         p = result.get("p", None)
         compressed = result.get("zlib", None)
         b64data = result.get("data", None)
 
-        if not n or not p or not b64data or not zlib:
+        if not v or not n or not p or not b64data or not zlib:
             raise ValueError("Invalid BloomFilter JSON structure")
+
+        if v != BloomFilter.VERSION:
+            raise ValueError("Incompatible BloomFilter version")
 
         rawdata = base64.decodestring(b64data)
         if compressed:
             rawdata = zlib.decompress(rawdata)
 
-        data = array.array("L")
+        data = array.array("l")
         data.fromstring(rawdata)
         return BloomFilter(ideal_num_elements_n=n, error_rate_p=p, data=data)
 
