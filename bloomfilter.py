@@ -46,23 +46,7 @@ class MersennesProbeGenerator(BloomFilterProbeGenerator):
 
     def get_probes(self, num_probes_k, num_bits_m, key):
         '''Apply num_probes_k hash functions to key.  Generate the array index and bitmask corresponding to each result'''
-
-        # This one assumes key is either bytes or str (or other list of integers)
-
-        # I'd love to check for long too, but that doesn't exist in 3.2, and 2.5 doesn't have the numbers.Integral base type
-        if hasattr(key, '__divmod__'):
-            int_list = []
-            temp = key
-            while temp:
-                quotient, remainder = divmod(temp, 256)
-                int_list.append(remainder)
-                temp = quotient
-        elif hasattr(key[0], '__divmod__'):
-            int_list = key
-        elif isinstance(key[0], str):
-            int_list = [ord(char) for char in key]
-        else:
-            raise TypeError('Sorry, I do not know how to hash this type')
+        int_list = [ord(char) for char in key]
 
         hash_value1 = self.hash1(int_list)
         hash_value2 = self.hash2(int_list)
