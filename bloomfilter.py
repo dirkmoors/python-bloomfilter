@@ -2,13 +2,14 @@
 """
 bloomfilter.py: A pure python implementation of a bloom filter
 
-source: http://code.activestate.com/recipes/577686-bloom-filter/
+sources:
+http://code.activestate.com/recipes/577686-bloom-filter/
+http://stromberg.dnsalias.org/svn/bloom-filter/trunk/bloom_filter_mod.py
 
 Modified by Dirk Moors
 """
 
 import math
-import array
 import random
 import base64
 import json
@@ -23,21 +24,78 @@ def byteArrayToLongArray(byteArray):
     fmt = '!%s'%('q'*(len(byteArray)/8))
     return [long(i) for i in struct.unpack(fmt, byteArray)]
 
-def stringToHashCode(s):
-    #http://garage.pimentech.net/libcommonPython_src_python_libcommon_javastringhashcode/
-    h = 0
-    for c in s:
-        h = (31 * h + ord(c)) & 0xFFFFFFFF
-    return ((h + 0x80000000) & 0xFFFFFFFF) - 0x80000000
-
 def assertListEquals(l1, l2):
     assert len(l1) == len(l2)
     for i in xrange(len(l1)):
         assert l1[i] == l2[i]
 
+class BloomFilterProbeGenerator(object):
+    def get_probes(self, num_probes_k, num_bits_m, key):
+        raise NotImplementedError("Should be implemented in subclass")
+
+class RandomProbeGenerator(BloomFilterProbeGenerator):
+    def get_probes(self, num_probes_k, num_bits_m, key):
+        hasher = random.Random(key).randrange
+        for dummy in range(num_probes_k):
+            bitno = hasher(num_bits_m)
+            yield bitno % num_bits_m
+
+class MersennesProbeGenerator(BloomFilterProbeGenerator):
+    MERSENNES1 = [2 ** x - 1 for x in [17, 31, 127]]
+    MERSENNES2 = [2 ** x - 1 for x in [19, 67, 257]]
+
+    def get_probes(self, num_probes_k, num_bits_m, key):
+        '''Apply num_probes_k hash functions to key.  Generate the array index and bitmask corresponding to each result'''
+
+        # This one assumes key is either bytes or str (or other list of integers)
+
+        # I'd love to check for long too, but that doesn't exist in 3.2, and 2.5 doesn't have the numbers.Integral base type
+        if hasattr(key, '__divmod__'):
+            int_list = []
+            temp = key
+            while temp:
+                quotient, remainder = divmod(temp, 256)
+                int_list.append(remainder)
+                temp = quotient
+        elif hasattr(key[0], '__divmod__'):
+            int_list = key
+        elif isinstance(key[0], str):
+            int_list = [ord(char) for char in key]
+        else:
+            raise TypeError('Sorry, I do not know how to hash this type')
+
+        hash_value1 = self.hash1(int_list)
+        hash_value2 = self.hash2(int_list)
+
+        # We're using linear combinations of hash_value1 and hash_value2 to obtain num_probes_k hash functions
+        for probeno in range(1, num_probes_k + 1):
+            bit_index = hash_value1 + probeno * hash_value2
+            yield bit_index % num_bits_m
+
+    def simple_hash(self, int_list, prime1, prime2, prime3):
+        '''Compute a hash value from a list of integers and 3 primes'''
+        result = 0
+        for integer in int_list:
+            result += ((result + integer + prime1) * prime2) % prime3
+        return result
+
+    def hash1(self, int_list):
+        '''Basic hash function #1'''
+        return self.simple_hash(int_list,
+                                MersennesProbeGenerator.MERSENNES1[0],
+                                MersennesProbeGenerator.MERSENNES1[1],
+                                MersennesProbeGenerator.MERSENNES1[2])
+
+    def hash2(self, int_list):
+        '''Basic hash function #2'''
+        return self.simple_hash(int_list,
+                                MersennesProbeGenerator.MERSENNES2[0],
+                                MersennesProbeGenerator.MERSENNES2[1],
+                                MersennesProbeGenerator.MERSENNES2[2])
+
 class BloomFilter(object):
     VERSION = "1.0"
-    def __init__(self, ideal_num_elements_n, error_rate_p, data=None):
+    def __init__(self, ideal_num_elements_n, error_rate_p, data=None, probegenerator=None):
         if ideal_num_elements_n <= 0:
             raise ValueError('ideal_num_elements_n must be > 0')
         if not (0 < error_rate_p < 1):
@@ -51,12 +109,9 @@ class BloomFilter(object):
 
         self.num_words = BloomFilter.calculateNumWords(self.num_bits_m)
 
-        self.data = data or [long(0) for _ in xrange(self.num_words)]
+        self.probegenerator = probegenerator or MersennesProbeGenerator()
 
-    def get_probes(self, key):
-        _r = random.Random(stringToHashCode(key)).random
-        for _ in range(self.num_probes_k):
-            yield int(_r() * self.num_words)
+        self.data = data or [long(0) for _ in xrange(self.num_words)]
 
     def get_data(self):
         return self.data
@@ -68,8 +123,10 @@ class BloomFilter(object):
         return self.num_bits_m
 
     def add(self, key):
-        for i in self.get_probes(key):
-            self.data[i//8] |= 2 ** (i % 8)
+        for bitno in self.probegenerator.get_probes(self.num_probes_k, self.num_bits_m, key):
+            wordno, bit_within_wordno = divmod(bitno, 32)
+            mask = 1 << bit_within_wordno
+            self.data[wordno] |= mask
 
     def match_template(self, bfilter):
         return (
@@ -124,13 +181,16 @@ class BloomFilter(object):
         if compressed:
             rawdata = zlib.decompress(rawdata)
 
-        #data = array.array("l")
-        #data.fromstring(rawdata)
         data = byteArrayToLongArray(rawdata)
         return BloomFilter(ideal_num_elements_n=n, error_rate_p=p, data=data)
 
     def __contains__(self, key):
-        return all(self.data[i//8] & (2 ** (i % 8)) for i in self.get_probes(key))
+        for bitno in self.probegenerator.get_probes(self.num_probes_k, self.num_bits_m, key):
+            wordno, bit_within_wordno = divmod(bitno, 32)
+            mask = 1 << bit_within_wordno
+            if not self.data[wordno] & mask:
+                return False
+        return True
 
     @staticmethod
     def calculateNumBitsM(n, p):
@@ -160,7 +220,7 @@ if __name__ == '__main__':
         Pennsylvania RhodeIsland SouthCarolina SouthDakota Tennessee Texas Utah
         Vermont Virginia Washington WestVirginia Wisconsin Wyoming'''.split()
 
-    bf1 = BloomFilter(ideal_num_elements_n=1000, error_rate_p=0.001)
+    bf1 = BloomFilter(ideal_num_elements_n=1000000, error_rate_p=0.001)
     for state in states:
         bf1.add(state)
 
