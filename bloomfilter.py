@@ -15,6 +15,12 @@ import base64
 import json
 import zlib
 import struct
+import hashlib
+
+def hash(bytes):
+    m = hashlib.sha256()
+    m.update(bytes)
+    return m.hexdigest()
 
 def longArrayToByteArray(longArray):
     fmt = '!%s'%('q'*len(longArray))
@@ -41,6 +47,7 @@ class RandomProbeGenerator(BloomFilterProbeGenerator):
             yield bitno % num_bits_m
 
 class MersennesProbeGenerator(BloomFilterProbeGenerator):
+    #http://en.wikipedia.org/wiki/Mersenne_prime
     MERSENNES1 = [2 ** x - 1 for x in [17, 31, 127]]
     MERSENNES2 = [2 ** x - 1 for x in [19, 67, 257]]
 
@@ -48,31 +55,37 @@ class MersennesProbeGenerator(BloomFilterProbeGenerator):
         '''Apply num_probes_k hash functions to key.  Generate the array index and bitmask corresponding to each result'''
         int_list = [ord(char) for char in key]
 
-        hash_value1 = self.hash1(int_list)
-        hash_value2 = self.hash2(int_list)
+        m1 = MersennesProbeGenerator.MERSENNES1
+        m2 = MersennesProbeGenerator.MERSENNES2
+
+        hash_value1 = MersennesProbeGenerator.hash1(int_list)
+        hash_value2 = MersennesProbeGenerator.hash2(int_list)
 
         # We're using linear combinations of hash_value1 and hash_value2 to obtain num_probes_k hash functions
         for probeno in range(1, num_probes_k + 1):
-            bit_index = hash_value1 + probeno * hash_value2
+            bit_index = hash_value1 + (probeno * hash_value2)
             yield bit_index % num_bits_m
 
-    def simple_hash(self, int_list, prime1, prime2, prime3):
+    @staticmethod
+    def simple_hash(int_list, prime1, prime2, prime3):
         '''Compute a hash value from a list of integers and 3 primes'''
         result = 0
         for integer in int_list:
             result += ((result + integer + prime1) * prime2) % prime3
         return result
 
-    def hash1(self, int_list):
+    @staticmethod
+    def hash1(int_list):
         '''Basic hash function #1'''
-        return self.simple_hash(int_list,
+        return MersennesProbeGenerator.simple_hash(int_list,
                                 MersennesProbeGenerator.MERSENNES1[0],
                                 MersennesProbeGenerator.MERSENNES1[1],
                                 MersennesProbeGenerator.MERSENNES1[2])
 
-    def hash2(self, int_list):
+    @staticmethod
+    def hash2(int_list):
         '''Basic hash function #2'''
-        return self.simple_hash(int_list,
+        return MersennesProbeGenerator.simple_hash(int_list,
                                 MersennesProbeGenerator.MERSENNES2[0],
                                 MersennesProbeGenerator.MERSENNES2[1],
                                 MersennesProbeGenerator.MERSENNES2[2])
@@ -107,7 +120,8 @@ class BloomFilter(object):
         return self.num_bits_m
 
     def add(self, key):
-        for bitno in self.probegenerator.get_probes(self.num_probes_k, self.num_bits_m, key):
+        probes = list(self.probegenerator.get_probes(self.num_probes_k, self.num_bits_m, key))
+        for bitno in probes:
             wordno, bit_within_wordno = divmod(bitno, 32)
             mask = 1 << bit_within_wordno
             self.data[wordno] |= mask
@@ -134,15 +148,21 @@ class BloomFilter(object):
 
     def toJSON(self, compress=True):
         data_bytes = longArrayToByteArray(self.data)
+
+        datahash = hash(data_bytes)
+
         if compress:
             data_bytes = zlib.compress(data_bytes)
+
+        b64data = base64.encodestring(data_bytes)
 
         result = {
             "v": BloomFilter.VERSION,
             "n": self.ideal_num_elements_n,
             "p": self.error_rate_p,
             "zlib": compress,
-            "data": base64.encodestring(data_bytes)
+            "data": b64data,
+            "hash": datahash
         }
         return json.dumps(result)
 
@@ -152,10 +172,11 @@ class BloomFilter(object):
         v = result.get("v", None)
         n = result.get("n", None)
         p = result.get("p", None)
+        datahash = result.get("hash", None)
         compressed = result.get("zlib", None)
         b64data = result.get("data", None)
 
-        if not v or not n or not p or not b64data:
+        if not v or not n or not p or not datahash or not b64data:
             raise ValueError("Invalid BloomFilter JSON structure")
 
         if v != BloomFilter.VERSION:
@@ -165,14 +186,19 @@ class BloomFilter(object):
         if compressed:
             rawdata = zlib.decompress(rawdata)
 
+        if hash(rawdata) != datahash:
+            raise ValueError("Data integrity error")
+
         data = byteArrayToLongArray(rawdata)
         return BloomFilter(ideal_num_elements_n=n, error_rate_p=p, data=data)
 
     def __contains__(self, key):
-        for bitno in self.probegenerator.get_probes(self.num_probes_k, self.num_bits_m, key):
+        probes = list(self.probegenerator.get_probes(self.num_probes_k, self.num_bits_m, key))
+        for bitno in probes:
             wordno, bit_within_wordno = divmod(bitno, 32)
             mask = 1 << bit_within_wordno
-            if not self.data[wordno] & mask:
+            c = self.data[wordno] & mask
+            if not c:
                 return False
         return True
 
@@ -204,7 +230,7 @@ if __name__ == '__main__':
         Pennsylvania RhodeIsland SouthCarolina SouthDakota Tennessee Texas Utah
         Vermont Virginia Washington WestVirginia Wisconsin Wyoming'''.split()
 
-    bf1 = BloomFilter(ideal_num_elements_n=1000000, error_rate_p=0.001)
+    bf1 = BloomFilter(ideal_num_elements_n=100000, error_rate_p=0.001)
     for state in states:
         bf1.add(state)
 
