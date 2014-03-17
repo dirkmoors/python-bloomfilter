@@ -3,6 +3,8 @@ python-bloomfilter
 
 A pure python bloomfilter implementation with JSON (de)serialisation and (zlib) compression
 
+You can find a compatible JAVA implementation here: https://github.com/dirkmoors/java-bloomfilter
+
 Example:
 ```
 bf1 = BloomFilter(ideal_num_elements_n=1000000, error_rate_p=0.001)
