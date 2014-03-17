@@ -13,9 +13,25 @@ import random
 import base64
 import json
 import zlib
+import struct
+
+def longArrayToByteArray(longArray):
+    fmt = '!%s'%('q'*len(longArray))
+    return struct.pack(fmt, *longArray)
+
+def byteArrayToLongArray(byteArray):
+    fmt = '!%s'%('q'*(len(byteArray)/8))
+    return struct.unpack(fmt, byteArray)
+
+def stringToHashCode(s):
+    #http://garage.pimentech.net/libcommonPython_src_python_libcommon_javastringhashcode/
+    h = 0
+    for c in s:
+        h = (31 * h + ord(c)) & 0xFFFFFFFF
+    return ((h + 0x80000000) & 0xFFFFFFFF) - 0x80000000
 
 class BloomFilter(object):
-    VERSION = 1
+    VERSION = "1.0"
     def __init__(self, ideal_num_elements_n, error_rate_p, data=None):
         if ideal_num_elements_n <= 0:
             raise ValueError('ideal_num_elements_n must be > 0')
@@ -25,17 +41,18 @@ class BloomFilter(object):
         self.error_rate_p = error_rate_p
         self.ideal_num_elements_n = ideal_num_elements_n
 
-        self.num_bits_m = BloomFilter.calculateM(self.ideal_num_elements_n, self.error_rate_p)
-        self.num_probes_k = BloomFilter.calculateK(self.ideal_num_elements_n, self.num_bits_m)
+        self.num_bits_m = BloomFilter.calculateNumBitsM(self.ideal_num_elements_n, self.error_rate_p)
+        self.num_probes_k = BloomFilter.calculateNumProbesK(self.ideal_num_elements_n, self.num_bits_m)
 
-        self.number_of_words = BloomFilter.calculateNumWords(self.num_bits_m)
+        self.num_words = BloomFilter.calculateNumWords(self.num_bits_m)
 
-        self.data = data or array.array('l', [0 for _ in xrange(self.number_of_words)])
+        self.data = data or array.array('l', [0 for _ in xrange(self.num_words)])
+        #self.data = [long(0) for _ in xrange(self.num_words)]
 
     def get_probes(self, key):
-        _r = random.Random(key).random
+        _r = random.Random(stringToHashCode(key)).random
         for _ in range(self.num_probes_k):
-            yield int(_r() * self.number_of_words)
+            yield int(_r() * self.num_words)
 
     def toJSON(self, compress=True):
         result = {
@@ -89,14 +106,14 @@ class BloomFilter(object):
         return all(self.data[i//8] & (2 ** (i % 8)) for i in self.get_probes(key))
 
     @staticmethod
-    def calculateM(n, p):
+    def calculateNumBitsM(n, p):
         numerator = -1 * n * math.log(p)
         denominator = math.log(2) ** 2
         real_num_bits_m = numerator / denominator
         return int(math.ceil(real_num_bits_m))
 
     @staticmethod
-    def calculateK(n, m):
+    def calculateNumProbesK(n, m):
         real_num_probes_k = (m / n) * math.log(2)
         return int(math.ceil(real_num_probes_k))
 
@@ -113,7 +130,7 @@ class BloomFilter(object):
         compressed = result.get("zlib", None)
         b64data = result.get("data", None)
 
-        if not v or not n or not p or not b64data or not zlib:
+        if not v or not n or not p or not b64data:
             raise ValueError("Invalid BloomFilter JSON structure")
 
         if v != BloomFilter.VERSION:
@@ -139,13 +156,17 @@ if __name__ == '__main__':
         Pennsylvania RhodeIsland SouthCarolina SouthDakota Tennessee Texas Utah
         Vermont Virginia Washington WestVirginia Wisconsin Wyoming'''.split()
 
-    bf1 = BloomFilter(ideal_num_elements_n=1000000, error_rate_p=0.001)
+    bf1 = BloomFilter(ideal_num_elements_n=100000, error_rate_p=0.001)
     for state in states:
         bf1.add(state)
 
     orig_data = bf1.get_data()
 
     json_bf = bf1.toJSON()
+
+    print "##################"
+    print json_bf
+    print "##################"
 
     len_json = len(json_bf)
     print "data size: %s bytes"%len_json
