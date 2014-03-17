@@ -21,7 +21,7 @@ def longArrayToByteArray(longArray):
 
 def byteArrayToLongArray(byteArray):
     fmt = '!%s'%('q'*(len(byteArray)/8))
-    return struct.unpack(fmt, byteArray)
+    return [long(i) for i in struct.unpack(fmt, byteArray)]
 
 def stringToHashCode(s):
     #http://garage.pimentech.net/libcommonPython_src_python_libcommon_javastringhashcode/
@@ -29,6 +29,11 @@ def stringToHashCode(s):
     for c in s:
         h = (31 * h + ord(c)) & 0xFFFFFFFF
     return ((h + 0x80000000) & 0xFFFFFFFF) - 0x80000000
+
+def assertListEquals(l1, l2):
+    assert len(l1) == len(l2)
+    for i in xrange(len(l1)):
+        assert l1[i] == l2[i]
 
 class BloomFilter(object):
     VERSION = "1.0"
@@ -46,28 +51,12 @@ class BloomFilter(object):
 
         self.num_words = BloomFilter.calculateNumWords(self.num_bits_m)
 
-        self.data = data or array.array('l', [0 for _ in xrange(self.num_words)])
-        #self.data = [long(0) for _ in xrange(self.num_words)]
+        self.data = data or [long(0) for _ in xrange(self.num_words)]
 
     def get_probes(self, key):
         _r = random.Random(stringToHashCode(key)).random
         for _ in range(self.num_probes_k):
             yield int(_r() * self.num_words)
-
-    def toJSON(self, compress=True):
-        result = {
-            "v": BloomFilter.VERSION,
-            "n": self.ideal_num_elements_n,
-            "p": self.error_rate_p,
-            "zlib": compress
-        }
-
-        if not compress:
-            result["data"] = base64.encodestring(self.data.tostring())
-        else:
-            result["data"] = base64.encodestring(zlib.compress(self.data.tostring()))
-
-        return json.dumps(result)
 
     def get_data(self):
         return self.data
@@ -102,24 +91,19 @@ class BloomFilter(object):
             # Intersection b/w two unrelated bloom filter raises this
             raise ValueError("Mismatched bloom filters")
 
-    def __contains__(self, key):
-        return all(self.data[i//8] & (2 ** (i % 8)) for i in self.get_probes(key))
+    def toJSON(self, compress=True):
+        data_bytes = longArrayToByteArray(self.data)
+        if compress:
+            data_bytes = zlib.compress(data_bytes)
 
-    @staticmethod
-    def calculateNumBitsM(n, p):
-        numerator = -1 * n * math.log(p)
-        denominator = math.log(2) ** 2
-        real_num_bits_m = numerator / denominator
-        return int(math.ceil(real_num_bits_m))
-
-    @staticmethod
-    def calculateNumProbesK(n, m):
-        real_num_probes_k = (m / n) * math.log(2)
-        return int(math.ceil(real_num_probes_k))
-
-    @staticmethod
-    def calculateNumWords(m):
-        return (m + 31) // 32
+        result = {
+            "v": BloomFilter.VERSION,
+            "n": self.ideal_num_elements_n,
+            "p": self.error_rate_p,
+            "zlib": compress,
+            "data": base64.encodestring(data_bytes)
+        }
+        return json.dumps(result)
 
     @classmethod
     def fromJSON(cls, json_bf):
@@ -140,9 +124,29 @@ class BloomFilter(object):
         if compressed:
             rawdata = zlib.decompress(rawdata)
 
-        data = array.array("l")
-        data.fromstring(rawdata)
+        #data = array.array("l")
+        #data.fromstring(rawdata)
+        data = byteArrayToLongArray(rawdata)
         return BloomFilter(ideal_num_elements_n=n, error_rate_p=p, data=data)
+
+    def __contains__(self, key):
+        return all(self.data[i//8] & (2 ** (i % 8)) for i in self.get_probes(key))
+
+    @staticmethod
+    def calculateNumBitsM(n, p):
+        numerator = -1 * n * math.log(p)
+        denominator = math.log(2) ** 2
+        real_num_bits_m = numerator / denominator
+        return int(math.ceil(real_num_bits_m))
+
+    @staticmethod
+    def calculateNumProbesK(n, m):
+        real_num_probes_k = (m / n) * math.log(2)
+        return int(math.ceil(real_num_probes_k))
+
+    @staticmethod
+    def calculateNumWords(m):
+        return (m + 31) // 32
 
 if __name__ == '__main__':
     from random import sample
@@ -156,11 +160,9 @@ if __name__ == '__main__':
         Pennsylvania RhodeIsland SouthCarolina SouthDakota Tennessee Texas Utah
         Vermont Virginia Washington WestVirginia Wisconsin Wyoming'''.split()
 
-    bf1 = BloomFilter(ideal_num_elements_n=100000, error_rate_p=0.001)
+    bf1 = BloomFilter(ideal_num_elements_n=1000, error_rate_p=0.001)
     for state in states:
         bf1.add(state)
-
-    orig_data = bf1.get_data()
 
     json_bf = bf1.toJSON()
 
@@ -172,6 +174,7 @@ if __name__ == '__main__':
     print "data size: %s bytes"%len_json
 
     bf2 = BloomFilter.fromJSON(json_bf)
+    assertListEquals(bf1.data, bf2.data)
 
     new_data = bf2.get_data()
 
