@@ -46,20 +46,22 @@ class RandomProbeGenerator(BloomFilterProbeGenerator):
             bitno = hasher(num_bits_m)
             yield bitno % num_bits_m
 
-class MersennesProbeGenerator(BloomFilterProbeGenerator):
+class MersenneProbeGenerator(BloomFilterProbeGenerator):
+    NAME = "MERSENNE"
+
     #http://en.wikipedia.org/wiki/Mersenne_prime
-    MERSENNES1 = [2 ** x - 1 for x in [17, 31, 127]]
-    MERSENNES2 = [2 ** x - 1 for x in [19, 67, 257]]
+    MERSENNE1 = [2 ** x - 1 for x in [17, 31, 127]]
+    MERSENNE2 = [2 ** x - 1 for x in [19, 67, 257]]
 
     def get_probes(self, num_probes_k, num_bits_m, key):
         '''Apply num_probes_k hash functions to key.  Generate the array index and bitmask corresponding to each result'''
         int_list = [ord(char) for char in key]
 
-        m1 = MersennesProbeGenerator.MERSENNES1
-        m2 = MersennesProbeGenerator.MERSENNES2
+        m1 = MersenneProbeGenerator.MERSENNE1
+        m2 = MersenneProbeGenerator.MERSENNE2
 
-        hash_value1 = MersennesProbeGenerator.hash1(int_list)
-        hash_value2 = MersennesProbeGenerator.hash2(int_list)
+        hash_value1 = MersenneProbeGenerator.hash1(int_list)
+        hash_value2 = MersenneProbeGenerator.hash2(int_list)
 
         # We're using linear combinations of hash_value1 and hash_value2 to obtain num_probes_k hash functions
         for probeno in range(1, num_probes_k + 1):
@@ -77,18 +79,23 @@ class MersennesProbeGenerator(BloomFilterProbeGenerator):
     @staticmethod
     def hash1(int_list):
         '''Basic hash function #1'''
-        return MersennesProbeGenerator.simple_hash(int_list,
-                                MersennesProbeGenerator.MERSENNES1[0],
-                                MersennesProbeGenerator.MERSENNES1[1],
-                                MersennesProbeGenerator.MERSENNES1[2])
+        return MersenneProbeGenerator.simple_hash(int_list,
+                                MersenneProbeGenerator.MERSENNE1[0],
+                                MersenneProbeGenerator.MERSENNE1[1],
+                                MersenneProbeGenerator.MERSENNE1[2])
 
     @staticmethod
     def hash2(int_list):
         '''Basic hash function #2'''
-        return MersennesProbeGenerator.simple_hash(int_list,
-                                MersennesProbeGenerator.MERSENNES2[0],
-                                MersennesProbeGenerator.MERSENNES2[1],
-                                MersennesProbeGenerator.MERSENNES2[2])
+        return MersenneProbeGenerator.simple_hash(int_list,
+                                MersenneProbeGenerator.MERSENNE2[0],
+                                MersenneProbeGenerator.MERSENNE2[1],
+                                MersenneProbeGenerator.MERSENNE2[2])
+
+def get_probegenerator(name):
+    if name == "MERSENNE":
+        return MersenneProbeGenerator()
+    raise ValueError("Unsupported probegenerator: %s"%name)
 
 class BloomFilter(object):
     VERSION = "1.0"
@@ -106,7 +113,7 @@ class BloomFilter(object):
 
         self.num_words = BloomFilter.calculateNumWords(self.num_bits_m)
 
-        self.probegenerator = probegenerator or MersennesProbeGenerator()
+        self.probegenerator = probegenerator or MersenneProbeGenerator()
 
         self.data = data or [long(0) for _ in xrange(self.num_words)]
 
@@ -162,7 +169,8 @@ class BloomFilter(object):
             "p": self.error_rate_p,
             "zlib": compress,
             "data": b64data,
-            "hash": datahash
+            "hash": datahash,
+            "gen": self.probegenerator.NAME
         }
         return json.dumps(result)
 
@@ -172,11 +180,12 @@ class BloomFilter(object):
         v = result.get("v", None)
         n = result.get("n", None)
         p = result.get("p", None)
+        gen = result.get("gen", None)
         datahash = result.get("hash", None)
         compressed = result.get("zlib", None)
         b64data = result.get("data", None)
 
-        if not v or not n or not p or not datahash or not b64data:
+        if not v or not n or not p or not datahash or not b64data or not gen:
             raise ValueError("Invalid BloomFilter JSON structure")
 
         if v != BloomFilter.VERSION:
@@ -189,8 +198,10 @@ class BloomFilter(object):
         if hash(rawdata) != datahash:
             raise ValueError("Data integrity error")
 
+        probegenerator = get_probegenerator(gen)
+
         data = byteArrayToLongArray(rawdata)
-        return BloomFilter(ideal_num_elements_n=n, error_rate_p=p, data=data)
+        return BloomFilter(ideal_num_elements_n=n, error_rate_p=p, probegenerator=probegenerator, data=data)
 
     def __contains__(self, key):
         probes = list(self.probegenerator.get_probes(self.num_probes_k, self.num_bits_m, key))
