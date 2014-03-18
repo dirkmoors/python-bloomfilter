@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Foobar.py: Description of what foobar does.
+rng.py: Contains a BloomFilterProbeGenerator implementation based on Random Number Generator
 """
 
 import random

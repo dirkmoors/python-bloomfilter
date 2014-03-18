@@ -11,11 +11,14 @@ __status__ = "Production"
 def get_probegenerator(name):
     from bloomfilter.probegenerators.rng import RandomProbeGenerator
     from bloomfilter.probegenerators.mersenne import MersenneProbeGenerator
+    from bloomfilter.probegenerators.murmur import MurmurProbeGenerator
 
     if name == RandomProbeGenerator.NAME:
         return RandomProbeGenerator()
     elif name == MersenneProbeGenerator.NAME:
         return MersenneProbeGenerator()
+    elif name == MurmurProbeGenerator.NAME:
+        return MurmurProbeGenerator()
     raise ValueError("Unsupported probegenerator: %s"%name)
 
 class BloomFilterProbeGenerator(object):

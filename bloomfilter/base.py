@@ -11,7 +11,7 @@ import struct
 import hashlib
 
 from bloomfilter.probegenerators import get_probegenerator
-from bloomfilter.probegenerators.mersenne import MersenneProbeGenerator
+from bloomfilter.probegenerators.murmur import MurmurProbeGenerator
 
 __author__ = 'Dirk Moors'
 __copyright__ = 'Copyright 2014, Dirk Moors'
@@ -47,7 +47,7 @@ class BloomFilter(object):
 
         self.num_words = BloomFilter.calculateNumWords(self.num_bits_m)
 
-        self.probegenerator = probegenerator or MersenneProbeGenerator()
+        self.probegenerator = probegenerator or MurmurProbeGenerator()
 
         self.data = data or [long(0) for _ in xrange(self.num_words)]
 

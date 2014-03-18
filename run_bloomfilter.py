@@ -10,6 +10,7 @@ Modified by Dirk Moors
 """
 
 from bloomfilter import BloomFilter
+from bloomfilter.probegenerators import get_probegenerator
 
 def assertListEquals(l1, l2):
     assert len(l1) == len(l2)
@@ -28,7 +29,7 @@ if __name__ == '__main__':
         Pennsylvania RhodeIsland SouthCarolina SouthDakota Tennessee Texas Utah
         Vermont Virginia Washington WestVirginia Wisconsin Wyoming'''.split()
 
-    bf1 = BloomFilter(ideal_num_elements_n=100000, error_rate_p=0.001)
+    bf1 = BloomFilter(ideal_num_elements_n=100000, error_rate_p=0.001, probegenerator=get_probegenerator("MURMUR"))
     for state in states:
         bf1.add(state)
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 """
-Foobar.py: Description of what foobar does.
+mersenne.py: Contains a BloomFilterProbeGenerator implementation based on Mersenne Prime Theory:
+http://en.wikipedia.org/wiki/Mersenne_prime
 """
 
 from bloomfilter.probegenerators import BloomFilterProbeGenerator
+from bloomfilter.tools import enforce_int_overflow
 
 __author__ = 'Dirk Moors'
 __copyright__ = 'Copyright 2014, Dirk Moors'
@@ -13,7 +15,6 @@ __status__ = "Production"
 class MersenneProbeGenerator(BloomFilterProbeGenerator):
     NAME = "MERSENNE"
 
-    #http://en.wikipedia.org/wiki/Mersenne_prime
     MERSENNE1 = [2 ** x - 1 for x in [17, 31, 127]]
     MERSENNE2 = [2 ** x - 1 for x in [19, 67, 257]]
 
