@@ -18,7 +18,7 @@ __copyright__ = 'Copyright 2014, Dirk Moors'
 __version__ = "1.0.0"
 __status__ = "Production"
 
-def hash(bytes):
+def makeHash(bytes):
     m = hashlib.sha256()
     m.update(bytes)
     return m.hexdigest()
@@ -90,7 +90,7 @@ class BloomFilter(object):
     def toJSON(self, compress=True):
         data_bytes = longArrayToByteArray(self.data)
 
-        datahash = hash(data_bytes)
+        datahash = makeHash(data_bytes)
 
         if compress:
             data_bytes = zlib.compress(data_bytes)
@@ -129,7 +129,7 @@ class BloomFilter(object):
         if compressed:
             rawdata = zlib.decompress(rawdata)
 
-        if hash(rawdata) != datahash:
+        if makeHash(rawdata) != datahash:
             raise ValueError("Data integrity error")
 
         probegenerator = get_probegenerator(gen)
